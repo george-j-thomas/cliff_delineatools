@@ -243,17 +243,18 @@ def CliffDelineaPts(dem_path,beachdir):
     coords = [(x,y) for x, y in zip(Point_df.geometry.x, Point_df.geometry.y)]
     Point_df['Elevation'] = [x for x in src.sample(coords)]
     Point_df['Elevation'] = Point_df.apply(lambda x: x['Elevation'][0], axis=1)
+    Point_df['UTM_E'] = Point_df['geometry'].x
+    Point_df['UTM_N'] = Point_df['geometry'].y
 
     # Arrange Columns in order desired by CliffDelineaTool()
-    Point_df = Point_df[['PointID','TransectID','Elevation','Distance','geometry']]
+    Point_df = Point_df[['PointID','TransectID','Elevation','Distance','UTM_E','UTM_N','geometry']]
 
     return Point_df
 
 
-dem_path = r"C:\Users\g4thomas\Documents\CliffDelineation\20211103_00518_00568_NoWaves_Blacks_beach_cliff_ground.tif"
+dem_path = r"C:\Users\g4thomas\Documents\CliffDelineation\Files\20211103_00518_00568_NoWaves_Blacks_beach_cliff_ground.tif"
 Point_df = CliffDelineaPts(dem_path,beachdir="W")
-header = ['PointID','TransectID','Elevation','Distance']
+header = ['PointID','TransectID','Elevation','Distance','UTM_E','UTM_N']
 filebase = os.path.basename(dem_path)[:-23]
 filename = filebase+'_CliffPoints.txt'
-Point_df.to_csv(filename,columns = header)
-# Point_df.to_file('CliffDelineaPts.shp')
+Point_df.to_csv(filename,columns = header,index=False)
