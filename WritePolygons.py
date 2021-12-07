@@ -1,12 +1,23 @@
-from shapely.geometry import Polygon,LineString, LinearRing, MultiLineString
+from shapely.geometry import Polygon, LineString, LinearRing, MultiLineString
 from shapely.validation import make_valid
 import pandas as pd
 import pyproj
 import geopandas as gpd
 from shapely.geometry.polygon import LinearRing
+import os
 
+def BasePoints_to_Line(basepoints_path):
+    base_points = pd.read_csv(basepoints_path,header=None)
+    coordinates = list(zip(base_points.iloc[:,2],base_points.iloc[:,3]))
+    line = LineString(coordinates)
+    gdr = gpd.GeoSeries(line,crs='epsg:26911')
+    fol1, name = os.path.split(basepoints_path)
+    fol2,_ = os.path.split(fol1)
+    outpath = os.path.join(fol2,r'Cliff_Lines',name[:-4]+'.shp')
+    gdr.to_file(outpath)
+    return outpath
 
-def MopData(csv_path,MopsRange):
+def MopData(csv_path,cliffline_path):
     """ Returns dataframe of MOP lines from Mop.csv given a range.
 
     Keyword Arguments:
@@ -17,10 +28,17 @@ def MopData(csv_path,MopsRange):
         as well as range of actual MOP numbers.
     """
     dat = pd.read_csv(csv_path)
-    MopsRegion = dat.loc[MopsRange]
-    return MopsRegion
+    cliffline = gpd.read_file(cliffline_path)
+    top = cliffline.bounds.maxy[0]
+    bottom = cliffline.bounds.miny[0]
+    lowerneighbour_ind = dat[dat['BackYutm'] < top]['BackYutm'].idxmax()
+    upperneighbour_ind = dat[dat['BackYutm'] > bottom]['BackYutm'].idxmin()
+    MopsRange = range(upperneighbour_ind, lowerneighbour_ind)
+    getrange = range(upperneighbour_ind-1, lowerneighbour_ind+1)
+    MopsRegion = dat.loc[getrange]
+    return MopsRegion, MopsRange
 
-def BuildBigTiles(MopsRegion, backdist):
+def BuildBigTiles(MopsRegion,MopsRange, backdist):
     """ Builds "Big" (Cliff + Beach) MOP area tiles in both WSG 1984 and UTM Zone 11N coordinates.
 
     Keyword Arguments:
@@ -69,8 +87,8 @@ def BuildBigTiles(MopsRegion, backdist):
         offmidY = []
         backmidX = []
         backmidY = []
-        mops_range = range(len(MopsRegion)) 
-        for idx in mops_range:
+        # mops_range = range(len(MopsRegion)) 
+        for idx in MopsRange:
             geodesic = pyproj.Geod(ellps='WGS84')
             if idx == 0:
                 # For first section there is no 'previous midpoint', so just find
@@ -86,7 +104,7 @@ def BuildBigTiles(MopsRegion, backdist):
                                                         MopsRegion['OffLat'][idx],fwd_az,mid_dist)
                 offmidX.append(startpointX)
                 offmidY.append(startpointY)
-            elif idx > 0 and idx < mops_range[-1]:
+            elif idx > 0: #and idx < MopsRange[-1]:
                 # Previously described process for areas 2 to (End-1)
                 back_fwd_az,_,back_dist = geodesic.inv(MopsRegion['BackLon'][idx-1], MopsRegion['BackLat'][idx-1], 
                                                     MopsRegion['BackLon'][idx], MopsRegion['BackLat'][idx])
@@ -101,17 +119,17 @@ def BuildBigTiles(MopsRegion, backdist):
                 backmidY.append(backtempY)
                 offmidX.append(offtempX)
                 offmidY.append(offtempY)
-            elif idx == mops_range[-1]:
-                # For last area, similar process to first area
-                fwd_az,_,_ = geodesic.inv(MopsRegion['BackLon'][idx-1], MopsRegion['BackLat'][idx-1], 
-                                        MopsRegion['BackLon'][idx], MopsRegion['BackLat'][idx])
-                mid_dist = 50
-                endpointX, endpointY,_ = geodesic.fwd(MopsRegion['BackLon'][idx], MopsRegion['BackLat'][idx],fwd_az,mid_dist)
-                backmidX.append(endpointX)
-                backmidY.append(endpointY)
-                endpointX, endpointY,_ = geodesic.fwd(MopsRegion['OffLon'][idx], MopsRegion['OffLat'][idx],fwd_az,mid_dist)
-                offmidX.append(endpointX)
-                offmidY.append(endpointY)
+            # elif idx == MopsRange[-1]:
+            #     # For last area, similar process to first area
+            #     fwd_az,_,_ = geodesic.inv(MopsRegion['BackLon'][idx-1], MopsRegion['BackLat'][idx-1], 
+            #                             MopsRegion['BackLon'][idx], MopsRegion['BackLat'][idx])
+            #     mid_dist = 50
+            #     endpointX, endpointY,_ = geodesic.fwd(MopsRegion['BackLon'][idx], MopsRegion['BackLat'][idx],fwd_az,mid_dist)
+            #     backmidX.append(endpointX)
+            #     backmidY.append(endpointY)
+            #     endpointX, endpointY,_ = geodesic.fwd(MopsRegion['OffLon'][idx], MopsRegion['OffLat'][idx],fwd_az,mid_dist)
+            #     offmidX.append(endpointX)
+            #     offmidY.append(endpointY)
 
         return backmidX,backmidY,offmidX, offmidY
 
@@ -190,17 +208,20 @@ def BuildBigTiles(MopsRegion, backdist):
     id = []
     MOP = []
     geometry = []
-    tile_range = range(len(MopsRegion))
+    # tile_range = range(len(MopsRegion))
+    tile_range = MopsRange
+    count = 0
     for idx in tile_range:
         if idx < tile_range[-1]:
             # Builds BIG tiles (Beach + Cliff) to be split later by backbeach line
-            vertsX = [cliffbackX[idx],backmidX[idx],offmidX[idx],MopsRegion['OffLon'][idx],
-                      offmidX[idx+1],backmidX[idx+1],cliffbackX[idx+1]]#,cliffbackX[idx]]
-            vertsY = [cliffbackY[idx],backmidY[idx],offmidY[idx],MopsRegion['OffLat'][idx],
-                      offmidY[idx+1],backmidY[idx+1],cliffbackY[idx+1]]#,cliffbackY[idx]]
+            vertsX = [cliffbackX[count],backmidX[count],offmidX[count],MopsRegion['OffLon'][idx],
+                      offmidX[count+1],backmidX[count+1],cliffbackX[count+1]]#,cliffbackX[idx]]
+            vertsY = [cliffbackY[count],backmidY[count],offmidY[count],MopsRegion['OffLat'][idx],
+                      offmidY[count+1],backmidY[count+1],cliffbackY[count+1]]#,cliffbackY[idx]]
             r = LinearRing(list(zip(vertsX,vertsY)))
             geo_tmp = Polygon(r)
             
+            count = count+1
             # Remove known problem range for Coronado/Point Loma gap
             problem_range = range(221,240)
             if int(MopsRegion['Name'][idx][-4:]) not in problem_range:
@@ -252,23 +273,29 @@ def SplitTiles(cliffline_path,bigtile_df_utm,MopsRegion):
 
     # Find backbeach line shapefile
     cliffline = gpd.read_file(cliffline_path)
-    # Merge whole line together, filling gaps along the way
-    cliffline_multi = MultiLineString(list(cliffline['geometry']))
-    cliffline_merge = linemerge(cliffline_multi)
-    # Remove 'bad' cliff linestrings that are only 2 points
-    goodline_list = []
-    for line in cliffline_merge.geoms:
-        if len(line.coords) > 2:
-            goodline_list.append(line)
-    # Fill Gaps in between 'good' cliff linestrings with small straight lines 
-    # (Need continuous linestring for splitting)
-    connectors = []
-    for line_i in range(len(goodline_list)-1):
-        first = Point(goodline_list[line_i].coords[0])
-        last = Point(goodline_list[line_i+1].coords[-1])
-        connectors.append(LineString([first,last]))
-    full_list = list(goodline_list) + list(connectors)
-    full_line = linemerge(full_list)
+
+    # If gaps exist, fill them
+    if len(cliffline) > 1:
+        # Merge whole line together, filling gaps along the way
+        cliffline_multi = MultiLineString(list(cliffline['geometry']))
+        cliffline_merge = linemerge(cliffline_multi)
+        # Remove 'bad' cliff linestrings that are only 2 points
+        goodline_list = []
+        for line in cliffline_merge.geoms:
+            if len(line.coords) > 2:
+                goodline_list.append(line)
+        # Fill Gaps in between 'good' cliff linestrings with small straight lines 
+        # (Need continuous linestring for splitting)
+        connectors = []
+        for line_i in range(len(goodline_list)-1):
+            first = Point(goodline_list[line_i].coords[0])
+            last = Point(goodline_list[line_i+1].coords[-1])
+            connectors.append(LineString([first,last]))
+        full_list = list(goodline_list) + list(connectors)
+        full_line = linemerge(full_list)
+    else:
+        full_line = cliffline.geometry[0]
+        
     # Create 'check point' in middle of each beach tile to later assign it a beach class code
     geodesic = pyproj.Geod(ellps='WGS84')
     checkpts = []
@@ -320,7 +347,7 @@ def SplitTiles(cliffline_path,bigtile_df_utm,MopsRegion):
 
     return MOPtile_df
             
-def BuildMOPLines(MopsRegion):
+def BuildMOPLines(MopsRegion,MopsRange):
     """ Builds MOP Transect Lines in both WSG 1984 and UTM Zone 11N coordinates.
 
     Keyword Arguments:
@@ -333,7 +360,7 @@ def BuildMOPLines(MopsRegion):
     id = []
     MOP = []
     geometry = []
-    line_range = range(len(MopsRegion))
+    line_range = MopsRange
     for idx in line_range:
         if idx < line_range[-1]:
             ### builds MOP Lines
@@ -354,14 +381,24 @@ def BuildMOPLines(MopsRegion):
 
     return MOPline_df_wsg,MOPline_df_utm
 
-csv_path = r"C:\Users\g4thomas\Documents\CliffDelineation\Mop.csv"
-SDMops = range(931)
-MopsRange = SDMops
-MopsRegion = MopData(csv_path, MopsRange)
+folder = r"Files"
+csv_name = r"Mop.csv"
+basepoints_path = os.path.join(folder,r'Delineated_csv\20211103_00518_00568_NoWaves_Blacks_CliffPoints_base.txt')
+cliffline_path = BasePoints_to_Line(basepoints_path)
+cliffline_name = os.path.basename(cliffline_path)
+# csv_path = r"C:\Users\g4thomas\Documents\CliffDelineation\Files\Mop.csv"
+csv_path = os.path.join(folder,csv_name)
+# SDMops = range(931)
+# MopsRange = SDMops
+# cliffline_name = r"CliffLine_base.shp"
+# # cliffline_name = r"BackBeachLine.shp"
+# cliffline_path = os.path.join(folder,cliffline_name)
+MopsRegion,MopsRange  = MopData(csv_path, cliffline_path)
 backdist = 250
-bigtile_df_wsg,bigtile_df_utm = BuildBigTiles(MopsRegion,backdist)
-MOPline_df_wsg,MOPline_df_utm = BuildMOPLines(MopsRegion)
-cliffline_path = r"C:\Users\g4thomas\Documents\CliffDelineation\BackBeachLine.shp"
+bigtile_df_wsg,bigtile_df_utm = BuildBigTiles(MopsRegion, MopsRange, backdist)
+MOPline_df_wsg,MOPline_df_utm = BuildMOPLines(MopsRegion,MopsRange)
 MOPtile_df = SplitTiles(cliffline_path,bigtile_df_utm,MopsRegion)
 
-MOPtile_df.to_file("MOPtiles_py.shp")
+poly_name = cliffline_name[:-21]+'_poly.shp'
+save_path = os.path.join(folder,poly_name)
+MOPtile_df.to_file(save_path)

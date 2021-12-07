@@ -257,4 +257,6 @@ Point_df = CliffDelineaPts(dem_path,beachdir="W")
 header = ['PointID','TransectID','Elevation','Distance','UTM_E','UTM_N']
 filebase = os.path.basename(dem_path)[:-23]
 filename = filebase+'_CliffPoints.txt'
-Point_df.to_csv(filename,columns = header,index=False)
+outfolder =  r"C:\Users\g4thomas\Documents\CliffDelineation\Files\To_Delineate_txt"
+outpath = os.path.join(outfolder,filename)
+Point_df.to_csv(outpath,columns = header,index=False)
