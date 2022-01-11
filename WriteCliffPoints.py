@@ -1,5 +1,6 @@
 import numpy as np
 import rasterio
+import shapely
 from shapely.geometry import LineString, shape, Point
 from shapely.ops import transform
 import pyproj
@@ -105,59 +106,30 @@ def DEMextents(dem_path,beachdir):
         bestline = LineString(list(zip(x,y)))
         first = Point(x[0],y[0])
         last = Point(x[-1],y[-1])
-        # Extend if needed
-        if max(y) < src.bounds[3] or min (y) > src.bounds[1]:
-            first_wgs = WGS2UTM(first,direction="backward")
-            last_wgs = WGS2UTM(last,direction="backward")
-            geodesic = pyproj.Geod(ellps='WGS84')
-            fwd_az,back_az,_ = geodesic.inv(last_wgs.x,last_wgs.y, 
-                                            first_wgs.x, first_wgs.y)
-            extra_dist = 50
-            new_firstX, new_firstY,_ = geodesic.fwd(first_wgs.x, first_wgs.y, fwd_az, extra_dist)
-            new_lastX, new_lastY,_ = geodesic.fwd(last_wgs.x, last_wgs.y, back_az, extra_dist)
-            first_new = WGS2UTM(Point(new_firstX,new_firstY),direction="forward")
-            last_new = WGS2UTM(Point(new_lastX,new_lastY),direction="forward")
-        else:
-            first_new = first
-            last_new = last
+        first_new = first
+        last_new = last
         x = [first_new.x,last_new.x]
         y = [first_new.y,last_new.y]
         return x,y
     
-    src = rasterio.open(dem_path)
-
-    # Use beach facing direction as input
-    x,y = DEM_bestfit(dem_path)
+    src, partials = Polygonize(dem_path)
+    mult = unary_union(partials)
+    a = mult.minimum_rotated_rectangle
+    edge = a.boundary
+    coords = [c for c in edge.coords]
+    segments = [shapely.geometry.LineString([a, b]) for a, b in zip(coords,coords[1:])]
 
     if beachdir == "W":
-        Lshift = abs(src.bounds[0]-max(x))
-        Rshift = abs(src.bounds[2]-min(x))
-        xS = [a - Lshift for a in x]
-        xL = [a + Rshift for a in x]
-        Seaward_utm = LineString(list(zip(xS,y)))
-        Landward_utm = LineString(list(zip(xL,y)))
-    elif beachdir == "E":
-        Lshift = abs(src.bounds[0]-max(x))
-        Rshift = abs(src.bounds[2]-min(x))
-        # Swap direcs for E/W
-        xL = [a - Lshift for a in x]
-        xS = [a + Rshift for a in x]
-        Seaward_utm = LineString(list(zip(xS,y)))
-        Landward_utm = LineString(list(zip(xL,y)))
+        Landward_utm = segments[0]
+        Seaward_utm = segments[2]
     elif beachdir == "S":
-        Nshift = abs(src.bounds[3]-min(y))
-        Sshift = abs(src.bounds[1]-max(y))
-        yL = [a + Nshift for a in x]
-        yS = [a - Sshift for a in x]
-        Seaward_utm = LineString(list(zip(x,yS)))
-        Landward_utm = LineString(list(zip(x,yL)))
-    elif beachdir == "N":
-        Nshift = abs(src.bounds[3]-min(y))
-        Sshift = abs(src.bounds[1]-max(y))
-        yS = [a + Nshift for a in x]
-        yL = [a - Sshift for a in x]
-        Seaward_utm = LineString(list(zip(x,yS)))
-        Landward_utm = LineString(list(zip(x,yL)))
+        if segments[0].coords[0][1] > segments[2].coords[1][1]:
+            Landward_utm = segments[0]
+            Seaward_utm = segments[2]
+        else:
+            Landward_utm = segments[2]
+            Seaward_utm = segments[0]
+
     return Seaward_utm, Landward_utm
 
 
@@ -178,22 +150,6 @@ def CliffDelineaPts(dem_path,beachdir):
         - Create evenly (1 m) spaced points along each transect.
         - Extract DEM elevation values for each point 
     """
-
-    # # Create parallel Seaward/Landward extent lines
-    # cliffbackX = []
-    # cliffbackY = []
-    # offshoreX = []
-    # offshoreY = []
-    # # Base Seaward/Landward extents off DEM bounding box
-    # src = rasterio.open(dem_path)
-    # buffer = 50
-    # offshoreX = [src.bounds[0]-buffer]*2
-    # offshoreY = [src.bounds[3]+buffer,src.bounds[1]-buffer]
-    # cliffbackX = [src.bounds[2]+buffer]*2
-    # cliffbackY = [src.bounds[3]+buffer,src.bounds[1]-buffer
-    # # Convert Seaward and Landward extent lines to UTM
-    # Seaward_utm = LineString(zip(offshoreX,offshoreY))
-    # Landward_utm = LineString(zip(cliffbackX,cliffbackY))
 
     Seaward_utm, Landward_utm = DEMextents(dem_path,beachdir)
     # Create points every (distance_delta) along Seaward extent line
@@ -248,15 +204,19 @@ def CliffDelineaPts(dem_path,beachdir):
 
     # Arrange Columns in order desired by CliffDelineaTool()
     Point_df = Point_df[['PointID','TransectID','Elevation','Distance','UTM_E','UTM_N','geometry']]
-
+    Point_df = Point_df[Point_df.Elevation != -9999]
     return Point_df
 
-
-dem_path = r"C:\Users\g4thomas\Documents\CliffDelineation\Files\20211103_00518_00568_NoWaves_Blacks_beach_cliff_ground.tif"
-Point_df = CliffDelineaPts(dem_path,beachdir="W")
+dem_fol = r"C:\Users\g4thomas\Documents\CliffDelineation\Files\1_DEMs"
+# dem_name = "20211103_00518_00568_NoWaves_Blacks_beach_cliff_ground.tif"
+# dem_name = "20200220_00982_01170_NoWaves_MASS_Camp_Pendleton.tif"
+dem_name = "20210324_02619_02669_NoWaves_WillRogers.tif"
+beachdir = "S"
+dem_path = os.path.join(dem_fol,dem_name)
+Point_df = CliffDelineaPts(dem_path,beachdir)
 header = ['PointID','TransectID','Elevation','Distance','UTM_E','UTM_N']
-filebase = os.path.basename(dem_path)[:-23]
+filebase = os.path.basename(dem_path)[:-4]
 filename = filebase+'_CliffPoints.txt'
-outfolder =  r"C:\Users\g4thomas\Documents\CliffDelineation\Files\To_Delineate_txt"
+outfolder =  r"C:\Users\g4thomas\Documents\CliffDelineation\Files\2_To_Delineate_txt"
 outpath = os.path.join(outfolder,filename)
 Point_df.to_csv(outpath,columns = header,index=False)
