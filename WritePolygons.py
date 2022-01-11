@@ -13,15 +13,16 @@ def BasePoints_to_Line(basepoints_path):
     gdr = gpd.GeoSeries(line,crs='epsg:26911')
     fol1, name = os.path.split(basepoints_path)
     fol2,_ = os.path.split(fol1)
-    outpath = os.path.join(fol2,r'Cliff_Lines',name[:-4]+'.shp')
+    outpath = os.path.join(fol2,r'4_Cliff_Lines',name[:-4]+'.shp')
     gdr.to_file(outpath)
     return outpath
 
 def MopData(csv_path,cliffline_path):
-    """ Returns dataframe of MOP lines from Mop.csv given a range.
+    """ Returns dataframe of MOP lines from Mop.csv given the extent of a cliff line.
 
     Keyword Arguments:
-    MopsRange -- A range of numbers corresponding to desired lines of the csv.
+    csv_path -- Path to the csv containing MOP line data.
+    cliffline_path -- Path to shapefile of cliffbase line created by CliffDelineaTool.
 
     Future Upgrades:
     Will take in region name/code (e.g "San Diego" or corresponding code "D")
@@ -36,6 +37,7 @@ def MopData(csv_path,cliffline_path):
     MopsRange = range(upperneighbour_ind, lowerneighbour_ind)
     getrange = range(upperneighbour_ind-1, lowerneighbour_ind+1)
     MopsRegion = dat.loc[getrange]
+    MopsRegion['MOP_index'] = list(getrange)
     return MopsRegion, MopsRange
 
 def BuildBigTiles(MopsRegion,MopsRange, backdist):
@@ -317,6 +319,7 @@ def SplitTiles(cliffline_path,bigtile_df_utm,MopsRegion):
     # Assign class codes to each tile and build attribute lists
     MOP = []
     FID = []
+    MOP_idx = []
     Class = []
     final_poly = []
     beach_tot = 0
@@ -327,6 +330,7 @@ def SplitTiles(cliffline_path,bigtile_df_utm,MopsRegion):
         # Create new entry in each attribute list for each subtile
         for g_idx in range(len(bigtile_split['geometry'][idx].geoms)):
             MOP.append(bigtile_split['MOP'][idx])
+            MOP_idx.append(bigtile_split['ID'][idx])
             final_poly.append(bigtile_split['geometry'][idx].geoms[g_idx])  
             if check[g_idx]:
                 beach_tot = beach_tot+1
@@ -339,7 +343,8 @@ def SplitTiles(cliffline_path,bigtile_df_utm,MopsRegion):
     # Create Final GeoDataframe from attribute lists
     final_dict = {
         'FID':FID, 
-        'MOP':MOP, 
+        'MOP_num':MOP,
+        'MOP_idx':MOP_idx, 
         'Class':Class, 
         'geometry':final_poly
     }
@@ -382,8 +387,11 @@ def BuildMOPLines(MopsRegion,MopsRange):
     return MOPline_df_wsg,MOPline_df_utm
 
 folder = r"Files"
+subfolder = r"3_Delineated_csv"
 csv_name = r"Mop.csv"
-basepoints_path = os.path.join(folder,r'Delineated_csv\20211103_00518_00568_NoWaves_Blacks_CliffPoints_base.txt')
+# filename = '20211103_00518_00568_NoWaves_Blacks_CliffPoints_base.txt'
+filename = '20200220_MASS_Camp_Pendleton_nVert20_bME10_bS20_bL20_tS20_tL15_pC0.5_sW5_base.txt'
+basepoints_path = os.path.join(folder,subfolder,filename)
 cliffline_path = BasePoints_to_Line(basepoints_path)
 cliffline_name = os.path.basename(cliffline_path)
 # csv_path = r"C:\Users\g4thomas\Documents\CliffDelineation\Files\Mop.csv"
@@ -394,11 +402,25 @@ csv_path = os.path.join(folder,csv_name)
 # # cliffline_name = r"BackBeachLine.shp"
 # cliffline_path = os.path.join(folder,cliffline_name)
 MopsRegion,MopsRange  = MopData(csv_path, cliffline_path)
-backdist = 250
+backdist = 500#250
 bigtile_df_wsg,bigtile_df_utm = BuildBigTiles(MopsRegion, MopsRange, backdist)
 MOPline_df_wsg,MOPline_df_utm = BuildMOPLines(MopsRegion,MopsRange)
 MOPtile_df = SplitTiles(cliffline_path,bigtile_df_utm,MopsRegion)
 
 poly_name = cliffline_name[:-21]+'_poly.shp'
-save_path = os.path.join(folder,poly_name)
+subfolder = r"5_Output_Polys"
+save_path = os.path.join(folder,subfolder,poly_name)
 MOPtile_df.to_file(save_path)
+
+# Write beach/cliff txt files
+beach_fid = list(MOPtile_df.loc[MOPtile_df['Class'] == 1]['FID'])
+cliff_fid = list(MOPtile_df.loc[MOPtile_df['Class'] == 0]['FID'])
+path = os.path.join(folder,subfolder,poly_name[:-9])
+with open(path+'_beach.txt',"w+") as fb:
+    for item in beach_fid:
+        fb.write(f'{item}\n')
+fb.close()
+with open(path+'_cliff.txt',"w+") as fc:
+    for item in cliff_fid:
+        fc.write(f'{item}\n')
+fc.close()
