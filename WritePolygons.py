@@ -40,6 +40,141 @@ def MopData(csv_path,cliffline_path):
     MopsRegion['MOP_index'] = list(getrange)
     return MopsRegion, MopsRange
 
+
+def GetMidPoints(MopsRegion):
+    """ Returns midpoints between offshore and backbeach MOP points.
+
+    Keyword Arguments:
+    MopsRegion -- The dataframe returned by the MopData function.
+
+    Returns:
+    backmidX -- Longitudes of backbeach midpoints.
+    backmidY -- Latitudes of backbeach midpoints.
+    offmidX -- Longitudes of offshore midpoints.
+    offmidY -- Latitudes of offshore midpoints.
+
+    Midpoint creation is as follows for MOP Area 'x': 
+        On backbeach, finds the midpoint between backbeach point 'x-1' and
+            backbeach point 'x', which is then assigned to MOP line 'x' and will 
+            exist along the south end of MOP Area 'x'
+        The same process is performed for offshore points.
+    """
+    offmidX = []
+    offmidY = []
+    backmidX = []
+    backmidY = []
+    # mops_range = range(len(MopsRegion)) 
+    for idx in MopsRange:
+        geodesic = pyproj.Geod(ellps='WGS84')
+        if idx == 0:
+            # For first section there is no 'previous midpoint', so just find
+            # points 50m south of backbeach & offshore points
+            fwd_az,_,_ = geodesic.inv(MopsRegion['BackLon'][idx+1], MopsRegion['BackLat'][idx+1], 
+                                    MopsRegion['BackLon'][idx], MopsRegion['BackLat'][idx])
+            mid_dist = 50
+            startpointX, startpointY,_ = geodesic.fwd(MopsRegion['BackLon'][idx], 
+                                                    MopsRegion['BackLat'][idx],fwd_az,mid_dist)
+            backmidX.append(startpointX)
+            backmidY.append(startpointY)
+            startpointX, startpointY,_ = geodesic.fwd(MopsRegion['OffLon'][idx], 
+                                                    MopsRegion['OffLat'][idx],fwd_az,mid_dist)
+            offmidX.append(startpointX)
+            offmidY.append(startpointY)
+        elif idx > 0: #and idx < MopsRange[-1]:
+            # Previously described process for areas 2 to (End-1)
+            back_fwd_az,_,back_dist = geodesic.inv(MopsRegion['BackLon'][idx-1], MopsRegion['BackLat'][idx-1], 
+                                                MopsRegion['BackLon'][idx], MopsRegion['BackLat'][idx])
+            backtempX,backtempY,_ = geodesic.fwd(MopsRegion['BackLon'][idx-1], MopsRegion['BackLat'][idx-1],
+                                                back_fwd_az,back_dist/2)
+
+            off_fwd_az,_,off_dist = geodesic.inv(MopsRegion['OffLon'][idx-1], MopsRegion['OffLat'][idx-1], 
+                                                MopsRegion['OffLon'][idx], MopsRegion['OffLat'][idx])
+            offtempX,offtempY,_ = geodesic.fwd(MopsRegion['OffLon'][idx-1], MopsRegion['OffLat'][idx-1],
+                                            off_fwd_az,off_dist/2)
+            backmidX.append(backtempX)
+            backmidY.append(backtempY)
+            offmidX.append(offtempX)
+            offmidY.append(offtempY)
+        # elif idx == MopsRange[-1]:
+        #     # For last area, similar process to first area
+        #     fwd_az,_,_ = geodesic.inv(MopsRegion['BackLon'][idx-1], MopsRegion['BackLat'][idx-1], 
+        #                             MopsRegion['BackLon'][idx], MopsRegion['BackLat'][idx])
+        #     mid_dist = 50
+        #     endpointX, endpointY,_ = geodesic.fwd(MopsRegion['BackLon'][idx], MopsRegion['BackLat'][idx],fwd_az,mid_dist)
+        #     backmidX.append(endpointX)
+        #     backmidY.append(endpointY)
+        #     endpointX, endpointY,_ = geodesic.fwd(MopsRegion['OffLon'][idx], MopsRegion['OffLat'][idx],fwd_az,mid_dist)
+        #     offmidX.append(endpointX)
+        #     offmidY.append(endpointY)
+
+    return backmidX,backmidY,offmidX, offmidY
+
+def GetCliffBacks(backmidX,backmidY,offmidX, offmidY,backdist):
+    """ Returns coordinates for onshore vertexes (back of 'Big' tiles),
+    given the previously created midpoints.
+
+    Keyword Arguments:
+    backmidX -- Longitudes of backbeach midpoints.
+    backmidY -- Latitudes of backbeach midpoints.
+    offmidX -- Longitudes of offshore midpoints.
+    offmidY -- Latitudes of offshore midpoints.
+    backdist -- Inshore distance from backbeach midpoints for cliffback vertexes.
+
+    Returns:
+    cliffmidX -- Longitudes of cliffback midpoints.
+    cliffmidY -- Latitudes of cliffback midpoints.
+
+    Given offshore and backbeach midpoints between MOP transects, finds coordinates of
+        'cliff back' points a given distance (backdist) from the backbeach midpoint along the 
+        azimuth from the offshore to backbeach midpoint.
+    """
+    geodesic = pyproj.Geod(ellps='WGS84')
+    cliffbackX = []
+    cliffbackY = []
+    for idx in range(len(backmidX)):
+        fwd_az,_,_ = geodesic.inv(offmidX[idx], offmidY[idx],backmidX[idx], backmidY[idx])
+        endpointX, endpointY,_ = geodesic.fwd(backmidX[idx], backmidY[idx],fwd_az,backdist)
+        cliffbackX.append(endpointX)
+        cliffbackY.append(endpointY)
+
+    return cliffbackX,cliffbackY
+
+def MakeValid(initial_gdf):
+    """ Fixes "bowtie" polygons and returns a geodataframe with entirely valid polygons.
+
+    Finds invalid polygons, usually ones with "bowtie" shapes, and runs shapely's "make_valid"
+        funtion on them. 
+    """
+    problem_list = list(initial_gdf[~initial_gdf.is_valid]['MOP'])
+    valid_geom = []
+    for _, row in initial_gdf.iterrows():
+        if row['MOP'] in problem_list:
+            t1 = make_valid(row['geometry'])
+            t2 = max(t1.geoms, key=lambda a:a.area)
+            valid_geom.append(t2)
+        else:
+            valid_geom.append(row['geometry'])
+    initial_gdf['valid_geometry'] = valid_geom
+    valid_gdf = initial_gdf.drop(columns=['geometry'])
+    valid_gdf = valid_gdf.set_geometry('valid_geometry')
+
+    return valid_gdf
+
+def RemoveOverlap(valid_gdf):
+    """ Takes in a geodataframe containing entirely valid polygons and removes overlaps.
+
+    Overlaps are removed such that among 2+ overlapping polygons, 
+        the last polygon in the list will retain the overlapping area.
+    """
+    fix_geo = []
+    for i, row in valid_gdf.iterrows():
+        others = valid_gdf[valid_gdf['ID'] != row['ID']]
+        diff = row['valid_geometry'].difference(others.unary_union)
+        valid_gdf.at[i,'valid_geometry'] = diff
+        fix_geo.append(diff)
+
+    return fix_geo
+    
 def BuildBigTiles(MopsRegion,MopsRange, backdist):
     """ Builds "Big" (Cliff + Beach) MOP area tiles in both WSG 1984 and UTM Zone 11N coordinates.
 
@@ -66,140 +201,6 @@ def BuildBigTiles(MopsRegion,MopsRange, backdist):
     Then fixes invalid polygons and removes overlaps using internal
         MakeValid and RemoveOverlaps functions, respectively (both described below).
     """
-
-    def GetMidPoints(MopsRegion):
-        """ Returns midpoints between offshore and backbeach MOP points.
-
-        Keyword Arguments:
-        MopsRegion -- The dataframe returned by the MopData function.
-
-        Returns:
-        backmidX -- Longitudes of backbeach midpoints.
-        backmidY -- Latitudes of backbeach midpoints.
-        offmidX -- Longitudes of offshore midpoints.
-        offmidY -- Latitudes of offshore midpoints.
-
-        Midpoint creation is as follows for MOP Area 'x': 
-            On backbeach, finds the midpoint between backbeach point 'x-1' and
-                backbeach point 'x', which is then assigned to MOP line 'x' and will 
-                exist along the south end of MOP Area 'x'
-            The same process is performed for offshore points.
-        """
-        offmidX = []
-        offmidY = []
-        backmidX = []
-        backmidY = []
-        # mops_range = range(len(MopsRegion)) 
-        for idx in MopsRange:
-            geodesic = pyproj.Geod(ellps='WGS84')
-            if idx == 0:
-                # For first section there is no 'previous midpoint', so just find
-                # points 50m south of backbeach & offshore points
-                fwd_az,_,_ = geodesic.inv(MopsRegion['BackLon'][idx+1], MopsRegion['BackLat'][idx+1], 
-                                        MopsRegion['BackLon'][idx], MopsRegion['BackLat'][idx])
-                mid_dist = 50
-                startpointX, startpointY,_ = geodesic.fwd(MopsRegion['BackLon'][idx], 
-                                                        MopsRegion['BackLat'][idx],fwd_az,mid_dist)
-                backmidX.append(startpointX)
-                backmidY.append(startpointY)
-                startpointX, startpointY,_ = geodesic.fwd(MopsRegion['OffLon'][idx], 
-                                                        MopsRegion['OffLat'][idx],fwd_az,mid_dist)
-                offmidX.append(startpointX)
-                offmidY.append(startpointY)
-            elif idx > 0: #and idx < MopsRange[-1]:
-                # Previously described process for areas 2 to (End-1)
-                back_fwd_az,_,back_dist = geodesic.inv(MopsRegion['BackLon'][idx-1], MopsRegion['BackLat'][idx-1], 
-                                                    MopsRegion['BackLon'][idx], MopsRegion['BackLat'][idx])
-                backtempX,backtempY,_ = geodesic.fwd(MopsRegion['BackLon'][idx-1], MopsRegion['BackLat'][idx-1],
-                                                    back_fwd_az,back_dist/2)
-
-                off_fwd_az,_,off_dist = geodesic.inv(MopsRegion['OffLon'][idx-1], MopsRegion['OffLat'][idx-1], 
-                                                    MopsRegion['OffLon'][idx], MopsRegion['OffLat'][idx])
-                offtempX,offtempY,_ = geodesic.fwd(MopsRegion['OffLon'][idx-1], MopsRegion['OffLat'][idx-1],
-                                                off_fwd_az,off_dist/2)
-                backmidX.append(backtempX)
-                backmidY.append(backtempY)
-                offmidX.append(offtempX)
-                offmidY.append(offtempY)
-            # elif idx == MopsRange[-1]:
-            #     # For last area, similar process to first area
-            #     fwd_az,_,_ = geodesic.inv(MopsRegion['BackLon'][idx-1], MopsRegion['BackLat'][idx-1], 
-            #                             MopsRegion['BackLon'][idx], MopsRegion['BackLat'][idx])
-            #     mid_dist = 50
-            #     endpointX, endpointY,_ = geodesic.fwd(MopsRegion['BackLon'][idx], MopsRegion['BackLat'][idx],fwd_az,mid_dist)
-            #     backmidX.append(endpointX)
-            #     backmidY.append(endpointY)
-            #     endpointX, endpointY,_ = geodesic.fwd(MopsRegion['OffLon'][idx], MopsRegion['OffLat'][idx],fwd_az,mid_dist)
-            #     offmidX.append(endpointX)
-            #     offmidY.append(endpointY)
-
-        return backmidX,backmidY,offmidX, offmidY
-
-    def GetCliffBacks(backmidX,backmidY,offmidX, offmidY,backdist):
-        """ Returns coordinates for onshore vertexes (back of 'Big' tiles),
-        given the previously created midpoints.
-
-        Keyword Arguments:
-        backmidX -- Longitudes of backbeach midpoints.
-        backmidY -- Latitudes of backbeach midpoints.
-        offmidX -- Longitudes of offshore midpoints.
-        offmidY -- Latitudes of offshore midpoints.
-        backdist -- Inshore distance from backbeach midpoints for cliffback vertexes.
-
-        Returns:
-        cliffmidX -- Longitudes of cliffback midpoints.
-        cliffmidY -- Latitudes of cliffback midpoints.
-
-        Given offshore and backbeach midpoints between MOP transects, finds coordinates of
-            'cliff back' points a given distance (backdist) from the backbeach midpoint along the 
-            azimuth from the offshore to backbeach midpoint.
-        """
-        geodesic = pyproj.Geod(ellps='WGS84')
-        cliffbackX = []
-        cliffbackY = []
-        for idx in range(len(backmidX)):
-            fwd_az,_,_ = geodesic.inv(offmidX[idx], offmidY[idx],backmidX[idx], backmidY[idx])
-            endpointX, endpointY,_ = geodesic.fwd(backmidX[idx], backmidY[idx],fwd_az,backdist)
-            cliffbackX.append(endpointX)
-            cliffbackY.append(endpointY)
-
-        return cliffbackX,cliffbackY
-
-    def MakeValid(initial_gdf):
-        """ Fixes "bowtie" polygons and returns a geodataframe with entirely valid polygons.
-
-        Finds invalid polygons, usually ones with "bowtie" shapes, and runs shapely's "make_valid"
-            funtion on them. 
-        """
-        problem_list = list(initial_gdf[~initial_gdf.is_valid]['MOP'])
-        valid_geom = []
-        for _, row in initial_gdf.iterrows():
-            if row['MOP'] in problem_list:
-                t1 = make_valid(row['geometry'])
-                t2 = max(t1.geoms, key=lambda a:a.area)
-                valid_geom.append(t2)
-            else:
-                valid_geom.append(row['geometry'])
-        initial_gdf['valid_geometry'] = valid_geom
-        valid_gdf = initial_gdf.drop(columns=['geometry'])
-        valid_gdf = valid_gdf.set_geometry('valid_geometry')
-
-        return valid_gdf
-    
-    def RemoveOverlap(valid_gdf):
-        """ Takes in a geodataframe containing entirely valid polygons and removes overlaps.
-
-        Overlaps are removed such that among 2+ overlapping polygons, 
-            the last polygon in the list will retain the overlapping area.
-        """
-        fix_geo = []
-        for i, row in valid_gdf.iterrows():
-            others = valid_gdf[valid_gdf['ID'] != row['ID']]
-            diff = row['valid_geometry'].difference(others.unary_union)
-            valid_gdf.at[i,'valid_geometry'] = diff
-            fix_geo.append(diff)
-
-        return fix_geo
 
     # Get Offshore and Backbeach midpoints
     backmidX,backmidY,offmidX, offmidY = GetMidPoints(MopsRegion)
@@ -390,7 +391,7 @@ folder = r"Files"
 subfolder = r"3_Delineated_csv"
 csv_name = r"Mop.csv"
 # filename = '20211103_00518_00568_NoWaves_Blacks_CliffPoints_base.txt'
-filename = '20200220_MASS_Camp_Pendleton_nVert20_bME10_bS20_bL20_tS20_tL15_pC0.5_sW5_base.txt'
+filename = '20200220_MASS_Camp_Pendleton_nVert10_bME10_bS20_bL20_tS20_tL15_pC0.5_sW10_base.txt'
 basepoints_path = os.path.join(folder,subfolder,filename)
 cliffline_path = BasePoints_to_Line(basepoints_path)
 cliffline_name = os.path.basename(cliffline_path)
