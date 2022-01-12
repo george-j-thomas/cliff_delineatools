@@ -9,6 +9,87 @@ import geopandas as gpd
 from rasterio import features
 import os
 
+def Polygonize(dem_path):
+    """ Takes raster input and creates polygons for connected pixels of valid raster data.
+
+    Keyword Arguments:
+    dem_path -- The path to desired DEM raster.
+
+    Returns:
+    src -- Raster read from dem_path by rasterio.
+    partials -- List of polygons for valid raster pixels.
+
+    Creates binary raster mask of input DEM (data / no data) and then creates a polygon
+        for each connected group of valid pixels.
+    """
+    src = rasterio.open(dem_path)
+    partials = []
+    image = src.read(1)
+    nodata = -9999
+    is_valid = (image != nodata).astype(np.uint8)
+    for coords, value in features.shapes(is_valid, transform=src.transform):
+        # ignore polygons corresponding to nodata
+        if value != 0:
+            # convert geojson to shapely geometry
+            geom = shape(coords)
+            partials.append(geom)
+    return src, partials
+
+def WGS2UTM(shapely_input,direction="forward"):
+    """ Translates shapely objects between WGS 1984 and NAD 1983 UTM Zone 11N 
+    coordinate reference systems.
+
+    Keyword Arguments:
+    shapely_input -- The shapely object to translate.
+    direction -- Either "forward" (WGS->UTM) or "backward" (UTM->WGS). (default="forward")
+
+    Returns:
+    utm_output OR wgs_output -- Translated shapely output depending on direction.
+    """
+    wgs84 = pyproj.CRS('EPSG:4326')
+    utm = pyproj.CRS('EPSG:26911')
+    if direction == "forward":
+        project = pyproj.Transformer.from_crs(wgs84, utm, always_xy=True).transform
+        utm_output = transform(project, shapely_input)
+        return utm_output
+    elif direction == "backward":
+        project = pyproj.Transformer.from_crs(utm, wgs84, always_xy=True).transform
+        wgs_output = transform(project, shapely_input)
+        return wgs_output
+
+def DEM_bestfit(dem_path):
+    """ Takes raster input and finds linear best fit line through a group of representative points.
+
+    Keyword Arguments:
+    dem_path -- The path to desired DEM raster.
+
+    Returns:
+    x -- X values of linear best fit line endpoints.
+    y -- Y values of linear best fit line endpoints.
+
+    Creates representative points from polygons output by Polygonize(), then draws best 
+        fit line through them. Line is drawn from x bounds of raster and then extended if 
+        line does not cross the full raster y bounds.
+    """
+    src, partials = Polygonize(dem_path)
+
+    rep_points = []
+    for poly in partials:   
+        rep_points.append(poly.representative_point())
+    rep_points_gs = gpd.GeoSeries(rep_points, crs='epsg:26911')
+    m,b = np.polyfit(rep_points_gs.x,rep_points_gs.y,1)
+    # first = Point(rep_points_gs.x.iloc[0],m*rep_points_gs.x.iloc[0] + b)
+    # last = Point(rep_points_gs.x.iloc[-1],m*rep_points_gs.x.iloc[-1] + b)
+    x = [src.bounds[0]-200,src.bounds[2]+200]
+    y = [m*a + b for a in x]
+    # bestline = LineString(list(zip(x,y)))
+    first = Point(x[0],y[0])
+    last = Point(x[-1],y[-1])
+    first_new = first
+    last_new = last
+    x = [first_new.x,last_new.x]
+    y = [first_new.y,last_new.y]
+    return x,y
 
 def DEMextents(dem_path,beachdir):
     """ Creates parallel shapely Seaward and Landward extent lines based off bounds and 
@@ -30,87 +111,6 @@ def DEMextents(dem_path,beachdir):
             with DEM_bestfit() (see function description).
         - Shift best fit line depending on beach orientation and output shifted extent lines.
     """
-    def Polygonize(dem_path):
-        """ Takes raster input and creates polygons for connected pixels of valid raster data.
-
-        Keyword Arguments:
-        dem_path -- The path to desired DEM raster.
-
-        Returns:
-        src -- Raster read from dem_path by rasterio.
-        partials -- List of polygons for valid raster pixels.
-
-        Creates binary raster mask of input DEM (data / no data) and then creates a polygon
-            for each connected group of valid pixels.
-        """
-        src = rasterio.open(dem_path)
-        partials = []
-        image = src.read(1)
-        nodata = -9999
-        is_valid = (image != nodata).astype(np.uint8)
-        for coords, value in features.shapes(is_valid, transform=src.transform):
-            # ignore polygons corresponding to nodata
-            if value != 0:
-                # convert geojson to shapely geometry
-                geom = shape(coords)
-                partials.append(geom)
-        return src, partials
-    
-    def WGS2UTM(shapely_input,direction="forward"):
-        """ Translates shapely objects between WGS 1984 and NAD 1983 UTM Zone 11N 
-        coordinate reference systems.
-
-        Keyword Arguments:
-        shapely_input -- The shapely object to translate.
-        direction -- Either "forward" (WGS->UTM) or "backward" (UTM->WGS). (default="forward")
-
-        Returns:
-        utm_output OR wgs_output -- Translated shapely output depending on direction.
-        """
-        wgs84 = pyproj.CRS('EPSG:4326')
-        utm = pyproj.CRS('EPSG:26911')
-        if direction == "forward":
-            project = pyproj.Transformer.from_crs(wgs84, utm, always_xy=True).transform
-            utm_output = transform(project, shapely_input)
-            return utm_output
-        elif direction == "backward":
-            project = pyproj.Transformer.from_crs(utm, wgs84, always_xy=True).transform
-            wgs_output = transform(project, shapely_input)
-            return wgs_output
-
-    def DEM_bestfit(dem_path):
-        """ Takes raster input and finds linear best fit line through a group of representative points.
-
-        Keyword Arguments:
-        dem_path -- The path to desired DEM raster.
-
-        Returns:
-        x -- X values of linear best fit line endpoints.
-        y -- Y values of linear best fit line endpoints.
-
-        Creates representative points from polygons output by Polygonize(), then draws best 
-            fit line through them. Line is drawn from x bounds of raster and then extended if 
-            line does not cross the full raster y bounds.
-        """
-        src, partials = Polygonize(dem_path)
-
-        rep_points = []
-        for poly in partials:   
-            rep_points.append(poly.representative_point())
-        rep_points_gs = gpd.GeoSeries(rep_points, crs='epsg:26911')
-        m,b = np.polyfit(rep_points_gs.x,rep_points_gs.y,1)
-        # first = Point(rep_points_gs.x.iloc[0],m*rep_points_gs.x.iloc[0] + b)
-        # last = Point(rep_points_gs.x.iloc[-1],m*rep_points_gs.x.iloc[-1] + b)
-        x = [src.bounds[0]-200,src.bounds[2]+200]
-        y = [m*a + b for a in x]
-        bestline = LineString(list(zip(x,y)))
-        first = Point(x[0],y[0])
-        last = Point(x[-1],y[-1])
-        first_new = first
-        last_new = last
-        x = [first_new.x,last_new.x]
-        y = [first_new.y,last_new.y]
-        return x,y
     
     src, partials = Polygonize(dem_path)
     mult = unary_union(partials)
@@ -131,7 +131,6 @@ def DEMextents(dem_path,beachdir):
             Seaward_utm = segments[0]
 
     return Seaward_utm, Landward_utm
-
 
 def CliffDelineaPts(dem_path,beachdir):
     """ Creates point set for Zuzanna's CliffDelineaTool based off bounds and values of DEM.
@@ -208,8 +207,6 @@ def CliffDelineaPts(dem_path,beachdir):
     return Point_df
 
 dem_fol = r"C:\Users\g4thomas\Documents\CliffDelineation\Files\1_DEMs"
-# dem_name = "20211103_00518_00568_NoWaves_Blacks_beach_cliff_ground.tif"
-# dem_name = "20200220_00982_01170_NoWaves_MASS_Camp_Pendleton.tif"
 dem_name = "20210324_02619_02669_NoWaves_WillRogers.tif"
 beachdir = "S"
 dem_path = os.path.join(dem_fol,dem_name)
