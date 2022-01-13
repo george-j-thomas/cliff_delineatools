@@ -6,7 +6,7 @@ import geopandas as gpd
 from shapely.geometry.polygon import LinearRing
 import os
 
-def BasePoints_to_Line(basepoints_path):
+def basepoints_to_line(basepoints_path):
     base_points = pd.read_csv(basepoints_path,header=None)
     coordinates = list(zip(base_points.iloc[:,2],base_points.iloc[:,3]))
     line = LineString(coordinates)
@@ -17,7 +17,7 @@ def BasePoints_to_Line(basepoints_path):
     gdr.to_file(outpath)
     return outpath
 
-def MopData(csv_path,cliffline_path):
+def mop_data(csv_path,cliffline_path):
     """ Returns dataframe of MOP lines from Mop.csv given the extent of a cliff line.
 
     Keyword Arguments:
@@ -40,12 +40,11 @@ def MopData(csv_path,cliffline_path):
     MopsRegion['MOP_index'] = list(getrange)
     return MopsRegion, MopsRange
 
-
-def GetMidPoints(MopsRegion):
+def get_midpoints(MopsRegion):
     """ Returns midpoints between offshore and backbeach MOP points.
 
     Keyword Arguments:
-    MopsRegion -- The dataframe returned by the MopData function.
+    MopsRegion -- The dataframe returned by the mop_data function.
 
     Returns:
     backmidX -- Longitudes of backbeach midpoints.
@@ -109,7 +108,7 @@ def GetMidPoints(MopsRegion):
 
     return backmidX,backmidY,offmidX, offmidY
 
-def GetCliffBacks(backmidX,backmidY,offmidX, offmidY,backdist):
+def get_cliffbacks(backmidX,backmidY,offmidX, offmidY,backdist):
     """ Returns coordinates for onshore vertexes (back of 'Big' tiles),
     given the previously created midpoints.
 
@@ -139,10 +138,10 @@ def GetCliffBacks(backmidX,backmidY,offmidX, offmidY,backdist):
 
     return cliffbackX,cliffbackY
 
-def MakeValid(initial_gdf):
+def validate_geometry(initial_gdf):
     """ Fixes "bowtie" polygons and returns a geodataframe with entirely valid polygons.
 
-    Finds invalid polygons, usually ones with "bowtie" shapes, and runs shapely's "make_valid"
+    Finds invalid polygons, usually ones with "bowtie" shapes, and runs shapely's make_valid()
         funtion on them. 
     """
     problem_list = list(initial_gdf[~initial_gdf.is_valid]['MOP'])
@@ -160,7 +159,7 @@ def MakeValid(initial_gdf):
 
     return valid_gdf
 
-def RemoveOverlap(valid_gdf):
+def remove_overlap(valid_gdf):
     """ Takes in a geodataframe containing entirely valid polygons and removes overlaps.
 
     Overlaps are removed such that among 2+ overlapping polygons, 
@@ -174,20 +173,20 @@ def RemoveOverlap(valid_gdf):
         fix_geo.append(diff)
 
     return fix_geo
-    
-def BuildBigTiles(MopsRegion,MopsRange, backdist):
+
+def build_big_tiles(MopsRegion,MopsRange, backdist):
     """ Builds "Big" (Cliff + Beach) MOP area tiles in both WSG 1984 and UTM Zone 11N coordinates.
 
     Keyword Arguments:
-    MopsRegion -- The dataframe returned by the MopData function.
-    backdist -- Inshore distance from backbeach midpoints for cliffback vertexes (see GetCliffBacks function).
+    MopsRegion -- The dataframe returned by the mop_data function.
+    backdist -- Inshore distance from backbeach midpoints for cliffback vertexes (see get_cliffbacks function).
 
     Returns:
     bigtile_df_wsg -- Geodataframe of big tiles in WSG 1984 coordinates.
     bigtile_df_utm -- Geodataframe of big tiles in UTM Zone 11N coordinates.
 
     First creates backabeach, offshore, and cliffback midpoints 
-        (see internal GetMidPoints and GetCliffBacks functions).
+        (see internal get_midpoints and get_cliffbacks functions).
 
     Then builds Polygon "x" from vertices in the following order:
         cliffback midpoint (x), 
@@ -199,14 +198,14 @@ def BuildBigTiles(MopsRegion,MopsRange, backdist):
         cliffback midpoint (x+1)
 
     Then fixes invalid polygons and removes overlaps using internal
-        MakeValid and RemoveOverlaps functions, respectively (both described below).
+        validate_geometry and remove_overlaps functions, respectively (both described below).
     """
 
     # Get Offshore and Backbeach midpoints
-    backmidX,backmidY,offmidX, offmidY = GetMidPoints(MopsRegion)
+    backmidX,backmidY,offmidX, offmidY = get_midpoints(MopsRegion)
 
     # Get Cliffback midpoints
-    cliffbackX,cliffbackY = GetCliffBacks(backmidX,backmidY,offmidX, offmidY,backdist)
+    cliffbackX,cliffbackY = get_cliffbacks(backmidX,backmidY,offmidX, offmidY,backdist)
 
     id = []
     MOP = []
@@ -239,8 +238,8 @@ def BuildBigTiles(MopsRegion,MopsRange, backdist):
     }
     initial_gdf = gpd.GeoDataFrame(initial_dict,geometry=geometry,crs='epsg:4326')
     # Fix invalid polys and remove overlaps
-    valid_gdf = MakeValid(initial_gdf)
-    fix_geo = RemoveOverlap(valid_gdf)
+    valid_gdf = validate_geometry(initial_gdf)
+    fix_geo = remove_overlap(valid_gdf)
     fix_dict = {
         'ID':id, 
         'MOP':MOP, 
@@ -252,14 +251,14 @@ def BuildBigTiles(MopsRegion,MopsRange, backdist):
 
     return bigtile_df_wsg,bigtile_df_utm
 
-def SplitTiles(cliffline_path,bigtile_df_utm,MopsRegion):
+def split_tiles(cliffline_path,bigtile_df_utm,MopsRegion):
     """ Splits "Big" (Cliff + Beach) MOP area tiles into separate cliff and beach tiles 
         using the shapefile of line delineating the cliff base
 
     Keyword Arguments:
     cliffline_path -- The path to the shapefile of the cliff line
-    bigtile_df_utm -- Geodataframe of big tiles in UTM Zone 11N coordinates, created by BuildBigTiles
-    MopsRegion -- The dataframe returned by the MopData function.
+    bigtile_df_utm -- Geodataframe of big tiles in UTM Zone 11N coordinates, created by build_big_tiles
+    MopsRegion -- The dataframe returned by the mop_data function.
 
     Returns:
     MOPtile_df -- Geodataframe of split beach/cliff tiles, including 
@@ -353,11 +352,11 @@ def SplitTiles(cliffline_path,bigtile_df_utm,MopsRegion):
 
     return MOPtile_df
             
-def BuildMOPLines(MopsRegion,MopsRange):
+def build_mop_lines(MopsRegion,MopsRange):
     """ Builds MOP Transect Lines in both WSG 1984 and UTM Zone 11N coordinates.
 
     Keyword Arguments:
-    MopsRegion -- The dataframe returned by the MopData function.
+    MopsRegion -- The dataframe returned by the mop_data function.
 
     Returns:
     MOPline_df_wsg -- Geodataframe of big tiles in WSG 1984 coordinates.
@@ -387,41 +386,38 @@ def BuildMOPLines(MopsRegion,MopsRange):
 
     return MOPline_df_wsg,MOPline_df_utm
 
+def writetxt(MOPtile_df,cliffline_name):
+    """ Writes FIDs of beach & cliff tiles to respective txt files.
+
+    """
+    # Write beach/cliff txt files
+    beach_fid = list(MOPtile_df.loc[MOPtile_df['Class'] == 1]['FID'])
+    cliff_fid = list(MOPtile_df.loc[MOPtile_df['Class'] == 0]['FID'])
+    path = os.path.join(folder,subfolder,cliffline_name[:-21])
+    with open(path+'_beach.txt',"w+") as fb:
+        for item in beach_fid:
+            fb.write(f'{item}\n')
+    fb.close()
+    with open(path+'_cliff.txt',"w+") as fc:
+        for item in cliff_fid:
+            fc.write(f'{item}\n')
+    fc.close()
+
 folder = r"Files"
 subfolder = r"3_Delineated_csv"
 csv_name = r"Mop.csv"
-# filename = '20211103_00518_00568_NoWaves_Blacks_CliffPoints_base.txt'
-filename = '20200220_MASS_Camp_Pendleton_nVert10_bME10_bS20_bL20_tS20_tL15_pC0.5_sW10_base.txt'
+filename = '20200220_MASS_Camp_Pendleton_nVert5_bME10_bS20_bL20_tS20_tL15_pC0.5_sW10_base.txt'
 basepoints_path = os.path.join(folder,subfolder,filename)
-cliffline_path = BasePoints_to_Line(basepoints_path)
+cliffline_path = basepoints_to_line(basepoints_path)
 cliffline_name = os.path.basename(cliffline_path)
-# csv_path = r"C:\Users\g4thomas\Documents\CliffDelineation\Files\Mop.csv"
 csv_path = os.path.join(folder,csv_name)
-# SDMops = range(931)
-# MopsRange = SDMops
-# cliffline_name = r"CliffLine_base.shp"
-# # cliffline_name = r"BackBeachLine.shp"
-# cliffline_path = os.path.join(folder,cliffline_name)
-MopsRegion,MopsRange  = MopData(csv_path, cliffline_path)
-backdist = 500#250
-bigtile_df_wsg,bigtile_df_utm = BuildBigTiles(MopsRegion, MopsRange, backdist)
-MOPline_df_wsg,MOPline_df_utm = BuildMOPLines(MopsRegion,MopsRange)
-MOPtile_df = SplitTiles(cliffline_path,bigtile_df_utm,MopsRegion)
-
+MopsRegion,MopsRange  = mop_data(csv_path, cliffline_path)
+backdist = 250
+bigtile_df_wsg,bigtile_df_utm = build_big_tiles(MopsRegion, MopsRange, backdist)
+MOPline_df_wsg,MOPline_df_utm = build_mop_lines(MopsRegion,MopsRange)
+MOPtile_df = split_tiles(cliffline_path,bigtile_df_utm,MopsRegion)
+writetxt(MOPtile_df,cliffline_name)
 poly_name = cliffline_name[:-21]+'_poly.shp'
 subfolder = r"5_Output_Polys"
 save_path = os.path.join(folder,subfolder,poly_name)
 MOPtile_df.to_file(save_path)
-
-# Write beach/cliff txt files
-beach_fid = list(MOPtile_df.loc[MOPtile_df['Class'] == 1]['FID'])
-cliff_fid = list(MOPtile_df.loc[MOPtile_df['Class'] == 0]['FID'])
-path = os.path.join(folder,subfolder,poly_name[:-9])
-with open(path+'_beach.txt',"w+") as fb:
-    for item in beach_fid:
-        fb.write(f'{item}\n')
-fb.close()
-with open(path+'_cliff.txt',"w+") as fc:
-    for item in cliff_fid:
-        fc.write(f'{item}\n')
-fc.close()

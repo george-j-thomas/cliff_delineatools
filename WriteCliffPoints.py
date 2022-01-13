@@ -9,7 +9,7 @@ import geopandas as gpd
 from rasterio import features
 import os
 
-def Polygonize(dem_path):
+def polygonize(dem_path):
     """ Takes raster input and creates polygons for connected pixels of valid raster data.
 
     Keyword Arguments:
@@ -35,7 +35,7 @@ def Polygonize(dem_path):
             partials.append(geom)
     return src, partials
 
-def WGS2UTM(shapely_input,direction="forward"):
+def wgs2utm(shapely_input,direction="forward"):
     """ Translates shapely objects between WGS 1984 and NAD 1983 UTM Zone 11N 
     coordinate reference systems.
 
@@ -57,7 +57,7 @@ def WGS2UTM(shapely_input,direction="forward"):
         wgs_output = transform(project, shapely_input)
         return wgs_output
 
-def DEM_bestfit(dem_path):
+def dem_bestfit(dem_path):
     """ Takes raster input and finds linear best fit line through a group of representative points.
 
     Keyword Arguments:
@@ -67,11 +67,11 @@ def DEM_bestfit(dem_path):
     x -- X values of linear best fit line endpoints.
     y -- Y values of linear best fit line endpoints.
 
-    Creates representative points from polygons output by Polygonize(), then draws best 
+    Creates representative points from polygons output by polygonize(), then draws best 
         fit line through them. Line is drawn from x bounds of raster and then extended if 
         line does not cross the full raster y bounds.
     """
-    src, partials = Polygonize(dem_path)
+    src, partials = polygonize(dem_path)
 
     rep_points = []
     for poly in partials:   
@@ -91,7 +91,7 @@ def DEM_bestfit(dem_path):
     y = [first_new.y,last_new.y]
     return x,y
 
-def DEMextents(dem_path,beachdir):
+def dem_extents(dem_path,beachdir):
     """ Creates parallel shapely Seaward and Landward extent lines based off bounds and 
     values of DEM.
 
@@ -106,13 +106,13 @@ def DEMextents(dem_path,beachdir):
         generally in same direction as alongshore beach direction.
 
     The Steps are aws follows:
-        - Polygonize raster into many small polygons with Polygonize() (see function description).
+        - polygonize raster into many small polygons with polygonize() (see function description).
         - Create representative point in each polygon and define best fit line through them
-            with DEM_bestfit() (see function description).
+            with dem_bestfit() (see function description).
         - Shift best fit line depending on beach orientation and output shifted extent lines.
     """
     
-    src, partials = Polygonize(dem_path)
+    src, partials = polygonize(dem_path)
     mult = unary_union(partials)
     a = mult.minimum_rotated_rectangle
     edge = a.boundary
@@ -132,7 +132,7 @@ def DEMextents(dem_path,beachdir):
 
     return Seaward_utm, Landward_utm
 
-def CliffDelineaPts(dem_path,beachdir):
+def cliff_delinea_pts(dem_path,beachdir):
     """ Creates point set for Zuzanna's CliffDelineaTool based off bounds and values of DEM.
 
     Keyword Arguments:
@@ -143,14 +143,14 @@ def CliffDelineaPts(dem_path,beachdir):
     Point_df -- A Geodataframe of the points, which can then be exported to a shapefile.
 
     The Steps are aws follows:
-        - Define seaward and landward extent lines from DEM extent and orientation using DEMextents().
+        - Define seaward and landward extent lines from DEM extent and orientation using dem_extents().
         - Create evenly (5 m) spaced points along seaward transect, and find nearest points
         to them along landward transect. These will form DEM transect start/end points.
         - Create evenly (1 m) spaced points along each transect.
         - Extract DEM elevation values for each point 
     """
 
-    Seaward_utm, Landward_utm = DEMextents(dem_path,beachdir)
+    Seaward_utm, Landward_utm = dem_extents(dem_path,beachdir)
     # Create points every (distance_delta) along Seaward extent line
     distance_delta = 5
     distances = np.arange(0, Seaward_utm.length, distance_delta)
@@ -210,7 +210,7 @@ dem_fol = r"C:\Users\g4thomas\Documents\CliffDelineation\Files\1_DEMs"
 dem_name = "20210324_02619_02669_NoWaves_WillRogers.tif"
 beachdir = "S"
 dem_path = os.path.join(dem_fol,dem_name)
-Point_df = CliffDelineaPts(dem_path,beachdir)
+Point_df = cliff_delinea_pts(dem_path,beachdir)
 header = ['PointID','TransectID','Elevation','Distance','UTM_E','UTM_N']
 filebase = os.path.basename(dem_path)[:-4]
 filename = filebase+'_CliffPoints.txt'
