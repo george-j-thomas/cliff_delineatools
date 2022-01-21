@@ -1,9 +1,10 @@
-from shapely.geometry import Polygon, LineString, LinearRing, MultiLineString
+from shapely.geometry import Polygon, Point, LineString, LinearRing, MultiLineString
 from shapely.validation import make_valid
 import pandas as pd
 import pyproj
 import geopandas as gpd
 from shapely.geometry.polygon import LinearRing
+from shapely.ops import nearest_points
 import os
 
 def basepoints_to_line(basepoints_path):
@@ -29,18 +30,26 @@ def mop_data(csv_path,cliffline_path):
         as well as range of actual MOP numbers.
     """
     dat = pd.read_csv(csv_path)
+    dat_gpd = gpd.GeoDataFrame(dat,geometry=gpd.points_from_xy(dat['BackXutm'],dat['BackYutm']))
+    backpts = dat_gpd.geometry.unary_union
     cliffline = gpd.read_file(cliffline_path)
-    top = cliffline.bounds.maxy[0]
-    bottom = cliffline.bounds.miny[0]
-    lowerneighbour_ind = dat[dat['BackYutm'] < top]['BackYutm'].idxmax()
-    upperneighbour_ind = dat[dat['BackYutm'] > bottom]['BackYutm'].idxmin()
-    MopsRange = range(upperneighbour_ind, lowerneighbour_ind)
-    getrange = range(upperneighbour_ind-1, lowerneighbour_ind+1)
+    first,last = cliffline.geometry.boundary[0].geoms
+    _, nearest_geom = nearest_points(first, backpts)
+    first_i = int(dat_gpd.loc[dat_gpd.geometry== nearest_geom].index[0])
+    _, nearest_geom = nearest_points(last, backpts)
+    last_i = int(dat_gpd.loc[dat_gpd.geometry== nearest_geom].index[0])
+
+    if first_i > last_i:
+        MopsRange = range(last_i, first_i+3)
+        getrange = range(last_i-1, first_i+3)
+    else:
+        MopsRange = range(first_i,last_i+3)
+        getrange = range(first_i-1,last_i+3)
     MopsRegion = dat.loc[getrange]
     MopsRegion['MOP_index'] = list(getrange)
     return MopsRegion, MopsRange
 
-def get_midpoints(MopsRegion):
+def get_midpoints(MopsRegion,MopsRange):
     """ Returns midpoints between offshore and backbeach MOP points.
 
     Keyword Arguments:
@@ -202,7 +211,7 @@ def build_big_tiles(MopsRegion,MopsRange, backdist):
     """
 
     # Get Offshore and Backbeach midpoints
-    backmidX,backmidY,offmidX, offmidY = get_midpoints(MopsRegion)
+    backmidX,backmidY,offmidX, offmidY = get_midpoints(MopsRegion,MopsRange)
 
     # Get Cliffback midpoints
     cliffbackX,cliffbackY = get_cliffbacks(backmidX,backmidY,offmidX, offmidY,backdist)
@@ -393,7 +402,7 @@ def writetxt(MOPtile_df,cliffline_name):
     # Write beach/cliff txt files
     beach_fid = list(MOPtile_df.loc[MOPtile_df['Class'] == 1]['FID'])
     cliff_fid = list(MOPtile_df.loc[MOPtile_df['Class'] == 0]['FID'])
-    path = os.path.join(folder,subfolder,cliffline_name[:-21])
+    path = os.path.join(folder,subfolder,cliffline_name[:9]+cliffline_name[29:-9])
     with open(path+'_beach.txt',"w+") as fb:
         for item in beach_fid:
             fb.write(f'{item}\n')
@@ -402,22 +411,36 @@ def writetxt(MOPtile_df,cliffline_name):
         for item in cliff_fid:
             fc.write(f'{item}\n')
     fc.close()
+    return
+
+def build_polys(csv_path,cliffline_path):
+    """ Executes previous functions, taking in cliffline & building MOP polys.
+
+    """
+    # Build Polys based off cliff line
+    cliffline_name = os.path.basename(cliffline_path)
+    MopsRegion,MopsRange  = mop_data(csv_path, cliffline_path)
+    backdist = 250
+    _,bigtile_df_utm = build_big_tiles(MopsRegion, MopsRange, backdist)
+    MOPtile_df = split_tiles(cliffline_path,bigtile_df_utm,MopsRegion)
+
+    # Save Polys
+    poly_name = cliffline_name[:9]+cliffline_name[29:-9]+'_poly.shp'
+    subfolder = r"5_Output_Polys"
+    save_path = os.path.join(folder,subfolder,poly_name)
+    MOPtile_df.to_file(save_path)
+
+    # Write FIDs of beach/cliff tiles to respective files
+    writetxt(MOPtile_df,cliffline_name)
+
+    return
 
 folder = r"Files"
 subfolder = r"3_Delineated_csv"
 csv_name = r"Mop.csv"
+csv_path = os.path.join(folder,csv_name)
+
 filename = '20200220_MASS_Camp_Pendleton_nVert5_bME10_bS20_bL20_tS20_tL15_pC0.5_sW10_base.txt'
 basepoints_path = os.path.join(folder,subfolder,filename)
 cliffline_path = basepoints_to_line(basepoints_path)
-cliffline_name = os.path.basename(cliffline_path)
-csv_path = os.path.join(folder,csv_name)
-MopsRegion,MopsRange  = mop_data(csv_path, cliffline_path)
-backdist = 250
-bigtile_df_wsg,bigtile_df_utm = build_big_tiles(MopsRegion, MopsRange, backdist)
-MOPline_df_wsg,MOPline_df_utm = build_mop_lines(MopsRegion,MopsRange)
-MOPtile_df = split_tiles(cliffline_path,bigtile_df_utm,MopsRegion)
-writetxt(MOPtile_df,cliffline_name)
-poly_name = cliffline_name[:-21]+'_poly.shp'
-subfolder = r"5_Output_Polys"
-save_path = os.path.join(folder,subfolder,poly_name)
-MOPtile_df.to_file(save_path)
+# MOPline_df_wsg,MOPline_df_utm = build_mop_lines(MopsRegion,MopsRange)
