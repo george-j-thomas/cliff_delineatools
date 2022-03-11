@@ -1,4 +1,4 @@
-# CliffDelineation
+# cliff_delineatools
 
 ## Tools for use with [CliffDelineaTool](https://github.com/zswirad/CliffDelineaTool) by [zswirad](https://github.com/zswirad).
 
