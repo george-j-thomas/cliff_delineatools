@@ -10,7 +10,7 @@ import os
 def polygonize(dem_path):
     """ Takes raster input and creates polygons for connected pixels of valid raster data.
 
-    Keyword Arguments:
+    Arguments:
     dem_path -- The path to desired DEM raster.
 
     Returns:
@@ -37,7 +37,7 @@ def dem_extents(dem_path,beachdir):
     """ Creates parallel shapely Seaward and Landward extent lines based off bounds and 
     values of DEM.
 
-    Keyword Arguments:
+    Arguments:
     dem_path -- The path to the DEM file.
     beach_dir -- General cardinal direction that the beach faces.
 
@@ -76,7 +76,7 @@ def dem_extents(dem_path,beachdir):
 def create_points(dem_path,beachdir):
     """ Creates point set for Zuzanna's CliffDelineaTool based off bounds and values of DEM.
 
-    Keyword Arguments:
+    Arguments:
     dem_path -- The path to the DEM file.
     beach_dir -- General cardinal direction that the beach faces.
 
@@ -151,10 +151,16 @@ def create_points(dem_path,beachdir):
     return Point_df
 
 def write_points(dem_path,beachdir):
+    """ Creates points from DEM for Zuzanna's CliffDelineaTool and writes them to a csv.
 
+    Arguments:
+    dem_path -- The path to the DEM file.
+    beach_dir -- General cardinal direction that the beach faces. 
+    """
     Point_df = create_points(dem_path,beachdir)
     header = ['PointID','TransectID','Elevation','Distance','UTM_E','UTM_N']
     filebase = os.path.basename(dem_path)[:-4]
     output_name = filebase+'_CliffPoints.txt'
     outfolder = os.path.split(dem_path)[0]
     Point_df.to_csv(os.path.join(outfolder,output_name),columns = header,index=False)
+    return
