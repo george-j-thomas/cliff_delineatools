@@ -1,0 +1,14 @@
+name: cliff_delineatools
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python
+  - pip
+  - pandas
+  - numpy
+  - shapely
+  - rasterio
+  - geopandas
+  - statsmodels
+  - pyproj
