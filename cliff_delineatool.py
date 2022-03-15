@@ -157,6 +157,8 @@ def model_base(
         previous_base = gpd.read_file(kwargs.get('previous_base'))
         if len(previous_base) > 1:
             prev_line = fix_line_shp(previous_base)
+        else:
+            prev_line = previous_base.geometry[0]
 
         possible_problem_transects = []
         for tID in modelled_base['TransectID']:
@@ -164,12 +166,16 @@ def model_base(
                     modelled_base[modelled_base.TransectID == tID].UTM_E.item(),
                     modelled_base[modelled_base.TransectID == tID].UTM_N.item()
                     )
-            if prev_line.distance(base_point) > 5:
-                transect = LineString(zip(
-                            table[table.TransectID == tID].UTM_E.values,
-                            table[table.TransectID == tID].UTM_N.values)
-                            )
+            transect = LineString(zip(
+                    table[table.TransectID == tID].UTM_E.values,
+                    table[table.TransectID == tID].UTM_N.values)
+                    )
+            prev_point = prev_line.intersection(transect)
+            first, _ = transect.boundary.geoms
+
+            if (first.distance(prev_point) - first.distance(base_point)) > 5:
                 possible_problem_transects.append(transect)
+
         prob_transects_gp = gpd.GeoSeries(possible_problem_transects)
         prob_transects_gp.to_file('transects_off_5mOrGreater.shp')
             
@@ -415,6 +421,7 @@ def delineate_cliff(
         saveName1 = fileName[:-4] + '_nVert{}_bME{}_bS{}_bL{}_tS{}_tL{}_pC{}_sW{}_base.txt'.format(nVert,baseMaxElev,baseSea,baseLand,topSea,topLand,propConvex,smoothWindow)
 
         outpath = os.path.join(folder,saveName1)
+        print('The cliff base line path is ',outpath)
         modelled_base_save = modelled_base[['PointID', 'TransectID','UTM_E','UTM_N']] # Select which columns to save; you may want to add XY coordinates if they were present
         modelled_base_save.to_csv(outpath, header=False, index = False) # change to header=True if exporting with header     
 
