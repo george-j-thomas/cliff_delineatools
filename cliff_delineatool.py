@@ -1,3 +1,14 @@
+"""
+Below algorithm has been adapted for this module:
+CliffDelineaTool v1.2.0
+An algorithm to map coastal cliff base and top from topography
+Zuzanna M Swirad (zswirad@ucsd.edu), Scripps Institution of Oceanography, UC San Diego
+
+Use the delineate_cliff() function to find the cliff base (and optionally top as well) for a
+csv of cliff points created by points_from_dem.py module.
+
+"""
+
 import os
 import pandas as pd
 import numpy as np
@@ -8,10 +19,10 @@ import geopandas as gpd
 from shapely.geometry import LineString, Point, MultiLineString
 from shapely.ops import linemerge
 
-
 def get_slopes(data,nVert):
 
-    """ Get slopes of transect lines for later delineation.
+    """ 
+    Calculates slopes of transect lines for later delineation.
 
     Takes in original cliff points data and returns table including:
         -SeaSlope
@@ -103,24 +114,30 @@ def get_slopes(data,nVert):
     return table
 
 def fix_line_shp(cliffline):
-    # Merge whole line together, filling gaps along the way
-    cliffline_multi = MultiLineString(list(cliffline['geometry']))
-    cliffline_merge = linemerge(cliffline_multi)
-    # Remove 'bad' cliff linestrings that are only 2 points
-    goodline_list = []
-    for line in cliffline_merge.geoms:
-        if len(line.coords) > 2:
-            goodline_list.append(line)
-    # Fill Gaps in between 'good' cliff linestrings with small straight lines 
-    # (Need continuous linestring for splitting)
-    connectors = []
-    for line_i in range(len(goodline_list)-1):
-        first = Point(goodline_list[line_i].coords[0])
-        last = Point(goodline_list[line_i+1].coords[-1])
-        connectors.append(LineString([first,last]))
-    full_list = list(goodline_list) + list(connectors)
-    full_line = linemerge(full_list)
-    return full_line
+    """ 
+    If a line read using geopandas is actually many line fragments, it is merged, filled, and returned as 
+    one LineString.
+
+    """
+    if len(cliffline) > 1:
+        # Merge whole line together, filling gaps along the way
+        cliffline_multi = MultiLineString(list(cliffline['geometry']))
+        cliffline_merge = linemerge(cliffline_multi)
+        # Remove 'bad' cliff linestrings that are only 2 points
+        goodline_list = []
+        for line in cliffline_merge.geoms:
+            if len(line.coords) > 2:
+                goodline_list.append(line)
+        # Fill Gaps in between 'good' cliff linestrings with small straight lines 
+        # (Need continuous linestring for splitting)
+        connectors = []
+        for line_i in range(len(goodline_list)-1):
+            first = Point(goodline_list[line_i].coords[0])
+            last = Point(goodline_list[line_i+1].coords[-1])
+            connectors.append(LineString([first,last]))
+        full_list = list(goodline_list) + list(connectors)
+        full_line = linemerge(full_list)
+        return full_line
 
 def model_base(
         table,
@@ -129,7 +146,12 @@ def model_base(
         baseLand,
         **kwargs
     ):
-    """ Finds potential cliff base locations using input variables
+    """ 
+    Finds potential cliff base locations using input variables from delineate_cliff()
+
+    Optional Arguments:
+    **kwargs -- enter 'previous_base' as a keyword argument with a path to a previous cliff base line in order 
+        to output the transect lines on which the cliff base shifted seaward by more than 5m.
 
     """
     # Find potential cliff base locations:
@@ -287,7 +309,9 @@ def fix_top(
         topSea,
         topLand
         ):
-    """ Re-models cliff top locations, removing outliers
+    """ 
+    Re-models cliff top locations, removing outliers. 
+    Uses input arguments from delineate_cliff()
     
     """
     fix = fix.reset_index(drop=True)
@@ -372,7 +396,8 @@ def delineate_cliff(
         **kwargs
     ):
 
-    """ Finds cliff base (and top) for a given DEM using points created by .
+    """ 
+    Finds cliff base (and top) for a given DEM using points created by .
 
     Basic Arguments:
     cliff_points_path -- path to cliff points csv created by points_from_dem.py module
@@ -387,6 +412,10 @@ def delineate_cliff(
     topLand -- What is the max landward slope for cliff top (deg)?
     propConvex -- What is the minimal proportion of the distance from trendline #2 to replace modelled cliff top location?
     smoothWindow -- What is the alongshore moving window for cross-shore smoothing (points)?
+
+    Optional Arguments:
+    **kwargs -- enter 'previous_base' as a keyword argument with a path to a previous cliff base line in order 
+        to see in which transects the cliff base shifted seaward. More description in model_base() function.
 
     See below for more information:
     # An algorithm to map coastal cliff base and top from topography
@@ -465,13 +494,21 @@ def delineate_cliff(
                 modelled_top_save.to_csv(outpath, header=False, index = False) # change to header=True if exporting with header    
 
 def nVert_test(cliff_points_path,top):
+    """
+    Runs delineate_cliff() for nVert values 5, 10, 15, 20, and 25.
+
+    """
     n_values = np.linspace(5,25,5)
     for nVert in n_values:
         delineate_cliff(cliff_points_path,top,nVert)
     return
 
 def average_cliffline(cliff_points_path,top=False):
-
+    """
+    Uses nVert_test() to run delineate_cliff() for nVert values 5, 10, 15, 20, and 25.
+    Computes average position of these 5 cliff lines.
+    
+    """
     nVert_test(cliff_points_path,top)
     
     fileName = os.path.basename(cliff_points_path)

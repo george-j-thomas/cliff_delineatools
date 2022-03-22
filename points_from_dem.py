@@ -1,3 +1,12 @@
+"""
+Call the write_points() function to create points from a Digital Elevation Model (DEM) for use 
+with cliff_delineatool.py 
+
+First creates transect lines across the DEM and then points along transect lines, pulling elevation information from
+the DEM. 
+
+"""
+
 import numpy as np
 import rasterio
 import shapely
@@ -8,7 +17,8 @@ from rasterio import features
 import os
 
 def polygonize(dem_path):
-    """ Takes raster input and creates polygons for connected pixels of valid raster data.
+    """ 
+    Takes raster input and creates polygons for connected pixels of valid raster data.
 
     Arguments:
     dem_path -- The path to desired DEM raster.
@@ -34,7 +44,8 @@ def polygonize(dem_path):
     return src, partials
 
 def dem_extents(dem_path,beachdir):
-    """ Creates parallel shapely Seaward and Landward extent lines based off bounds and 
+    """ 
+    Creates parallel shapely Seaward and Landward extent lines based off bounds and 
     values of DEM.
 
     Arguments:
@@ -74,7 +85,8 @@ def dem_extents(dem_path,beachdir):
     return Seaward_utm, Landward_utm
 
 def create_points(dem_path,beachdir):
-    """ Creates point set for Zuzanna's CliffDelineaTool based off bounds and values of DEM.
+    """ 
+    Creates point set for Zuzanna's CliffDelineaTool based off bounds and values of DEM.
 
     Arguments:
     dem_path -- The path to the DEM file.
@@ -156,11 +168,13 @@ def write_points(dem_path,beachdir):
     Arguments:
     dem_path -- The path to the DEM file.
     beach_dir -- General cardinal direction that the beach faces. 
+
     """
     Point_df = create_points(dem_path,beachdir)
     header = ['PointID','TransectID','Elevation','Distance','UTM_E','UTM_N']
     filebase = os.path.basename(dem_path)[:-4]
     output_name = filebase+'_CliffPoints.txt'
     outfolder = os.path.split(dem_path)[0]
+    print('The cliff points path is ',os.path.join(outfolder,output_name))
     Point_df.to_csv(os.path.join(outfolder,output_name),columns = header,index=False)
     return
