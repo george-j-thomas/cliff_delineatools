@@ -5,7 +5,8 @@ An algorithm to map coastal cliff base and top from topography
 Zuzanna M Swirad (zswirad@ucsd.edu), Scripps Institution of Oceanography, UC San Diego
 
 Use the delineate_cliff() function to find the cliff base (and optionally top as well) for a
-csv of cliff points created by points_from_dem.py module.
+csv of cliff points created by points_from_dem.py module. Writes both to the same folder as 
+the cliff points csv.
 
 """
 

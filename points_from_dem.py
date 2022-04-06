@@ -5,6 +5,8 @@ with cliff_delineatool.py
 First creates transect lines across the DEM and then points along transect lines, pulling elevation information from
 the DEM. 
 
+Writes Points to same directory as the DEM is in.
+
 """
 
 import numpy as np

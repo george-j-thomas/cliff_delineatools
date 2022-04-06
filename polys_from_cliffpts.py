@@ -1,6 +1,12 @@
 """
 Call the build_polys() function to use cliff base points from cliff_delineatool.py to construct 
-beach- and cliff-size MOP area tiles.
+beach- and cliff-size MOP area tiles. 
+ - First generates a line from the cliff base points.
+ - Then uses the extent of the line to decide how many polygons to create.
+ - Generates large polygons (of both beach + cliff) then splits beach/cliff using 
+    cliff base line.
+ - Assigns class code to beach/cliff polys: Beach = 1, Cliff = 0
+ - Writes polygons and their attribute table to folder location of cliff base points input. 
 
 """
 
